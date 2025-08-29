@@ -1,0 +1,59 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - travel advice
+      - can you give me travel tips
+      - how should I prepare for my trip
+      - what do I need to know before traveling
+      - advice for traveling abroad
+      - help me plan my travel
+      - travel recommendations
+      - tips for safe travel
+      - what should I pack for my trip
+      - any suggestions for travelers
+
+  actions:
+    - kind: Question
+      id: Question_a07xRM
+      variable: Topic.Country
+      prompt: Which country would you like to retrieve travel information for?
+      entity: CountryOrRegionPrebuiltEntity
+
+    - kind: HttpRequestAction
+      id: zYNF9O
+      method: Post
+      url: https://prod-51.uksouth.logic.azure.com:443/workflows/fa06368dd36443369a1a4086d008be00/triggers/When_HTTP_request_is_received_from_copilot/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_HTTP_request_is_received_from_copilot%2Frun&sv=1.0&sig=lpGVoikJqtZNsGZYvjpvooGc-Jvq7s0fs_9AD16so20
+      headers:
+        Content-Type: application/json
+
+      body:
+        kind: JsonRequestContent
+        content: |-
+          ={
+            country: Topic.Country
+          }
+
+      response: Topic.TravelAdvice
+
+    - kind: SendActivity
+      id: ShowAdvice
+      activity: |
+        **Travel advice for {Topic.Country}**
+
+        **Safety & Security**
+        {Topic.TravelAdvice.safety_and_security}
+
+        **Entry Requirements**
+        {Topic.TravelAdvice.entry_requirements}
+
+        **Health**
+        {Topic.TravelAdvice.health}
+
+        _Updated_: {Topic.TravelAdvice.last_updated}
+        _Full details_: {Topic.TravelAdvice.official_url}
+
+inputType: {}
+outputType: {}

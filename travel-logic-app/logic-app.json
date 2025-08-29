@@ -1,0 +1,180 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_HTTP_request_is_received_from_copilot": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "schema": {
+                        "type": "object",
+                        "required": [
+                            "country"
+                        ],
+                        "properties": {
+                            "country": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "actions": {
+            "Compose_CountrySlug": {
+                "runAfter": {},
+                "type": "Compose",
+                "inputs": "@toLower(replace(replace(trim(triggerBody()?['country']),' ','-'),'&','and'))"
+            },
+            "GET_travel_advice_from_govuk": {
+                "runAfter": {
+                    "Compose_CountrySlug": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://www.gov.uk/api/content/foreign-travel-advice/@{outputs('Compose_CountrySlug')}",
+                    "method": "GET"
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Parse_JSON": {
+                "runAfter": {
+                    "GET_travel_advice_from_govuk": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@body('GET_travel_advice_from_govuk')",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "base_path": {
+                                "type": "string"
+                            },
+                            "public_updated_at": {
+                                "type": "string"
+                            },
+                            "details": {
+                                "type": "object",
+                                "properties": {
+                                    "parts": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "title": {
+                                                    "type": "string"
+                                                },
+                                                "body": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": [
+                                                "title",
+                                                "body"
+                                            ]
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "required": [
+                            "base_path",
+                            "public_updated_at",
+                            "details"
+                        ]
+                    }
+                }
+            },
+            "HTTP_OpenAI_Chat_Completions": {
+                "runAfter": {
+                    "Parse_JSON": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http",
+                "inputs": {
+                    "uri": "@parameters('aoai_uri')",
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "api-key": "@parameters('aoai_api_key')"
+                    },
+                    "body": {
+                        "temperature": 0.2,
+                        "response_format": {
+                            "type": "json_object"
+                        },
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "You summarise UK GOV.UK FCDO travel advice. Return JSON ONLY with keys: entry_requirements, safety_and_security, health, last_updated, official_url. Be concise, use natural language UK English, and omit any boilerplate."
+                                    }
+                                ]
+                            },
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "Here is the Content API 'parts' array for the travel advice page as JSON. Extract and summarise only the three sections: Entry requirements, Safety and security, and Health. If a section is missing, return an empty string for it.\n\nPARTS:\n@{string(body('Parse_JSON')?['details']?['parts'])}\n\nMetadata:\nlast_updated=@{body('Parse_JSON')?['public_updated_at']}\nofficial_url=@{concat('https://www.gov.uk', body('Parse_JSON')?['base_path'])}"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            },
+            "Response": {
+                "runAfter": {
+                    "HTTP_OpenAI_Chat_Completions": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 200,
+                    "headers": {
+                        "Content-Type": "application/json"
+                    },
+                    "body": "@body('HTTP_OpenAI_Chat_Completions')?['choices'][0]?['message']?['content']"
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "aoai_uri": {
+                "type": "String"
+            },
+            "aoai_api_key": {
+                "type": "SecureString"
+            },
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "aoai_uri": {
+            "value": "@parameters('aoai_uri')"
+        },
+        "aoai_api_key": {},
+        "$connections": {
+            "type": "Object",
+            "value": {}
+        }
+    }
+}

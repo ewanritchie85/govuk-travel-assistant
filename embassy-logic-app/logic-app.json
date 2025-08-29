@@ -1,0 +1,220 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "When_a_HTTP_request_is_received_from_copilot": {
+                "type": "Request",
+                "kind": "Http",
+                "inputs": {
+                    "method": "POST",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "country": {
+                                "type": "string"
+                            },
+                            "city": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "description": "triggered by http requests for embassy related queries from copilot"
+            }
+        },
+        "actions": {
+            "Compose_country_and_city": {
+                "runAfter": {},
+                "type": "Compose",
+                "inputs": "@{concat('british embassy ', coalesce(triggerBody()?['city'],''), ' ', coalesce(triggerBody()?['country'],''))\r\n\r\n}\n"
+            },
+            "GET_embassy_info_from_govuk_search_API": {
+                "runAfter": {
+                    "Compose_country_and_city": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://www.gov.uk/api/search.json",
+                    "method": "GET",
+                    "queries": {
+                        "q": "@{outputs('Compose_country_and_city')}",
+                        "filter_content_store_document_type": "worldwide_organisation"
+                    }
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Parse_JSON": {
+                "runAfter": {
+                    "GET_embassy_info_from_govuk_search_API": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@body('GET_embassy_info_from_govuk_search_API')",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "results": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {
+                                            "type": "string"
+                                        },
+                                        "link": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "Compose_GET_URL": {
+                "runAfter": {
+                    "Parse_JSON": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": "@{first(body('Parse_JSON')?['results'])?['link']}\n"
+            },
+            "GET_API_content": {
+                "runAfter": {
+                    "Compose_GET_URL": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http",
+                "inputs": {
+                    "uri": "@concat(\r\n  'https://www.gov.uk/api/content',\r\n  if(\r\n    startsWith(outputs('Compose_GET_URL'), 'http'),\r\n    replace(outputs('Compose_GET_URL'), 'https://www.gov.uk', ''),\r\n    outputs('Compose_GET_URL')\r\n  )\r\n)\r\n",
+                    "method": "GET"
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Compose_content": {
+                "runAfter": {
+                    "GET_API_content": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": {
+                    "name": "@{coalesce(body('Get_API_content')?['title'],'')}",
+                    "address": "@{concat(\r\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['street_address'],''),\r\n      ', ',\r\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['postal_code'],''),\r\n      ' ',\r\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['locality'],''),\r\n      ', ',\r\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['world_location'],'')\r\n  )}",
+                    "telephone": "@{if(\r\n      or(\r\n        equals(trim(coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['phone_numbers'][0]?['number'],'')),'-'),\r\n        equals(trim(coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['phone_numbers'][0]?['number'],'')),'')\r\n      ),\r\n      null,\r\n      trim(body('Get_API_content')?['links']?['contacts'][0]?['details']?['phone_numbers'][0]?['number'])\r\n  )}",
+                    "office_url": "@{coalesce(body('Get_API_content')?['links']?['main_office'][0]?['web_url'],'')}",
+                    "emergency_help_url": "@{if(\r\n      startsWith(last(split(trim(coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['description'],'')),' ')),'http'),\r\n      last(split(trim(body('Get_API_content')?['links']?['contacts'][0]?['details']?['description']),' ')),\r\n      ''\r\n  )}"
+                }
+            },
+            "HTTP_POST_office_URL_to_LLM": {
+                "runAfter": {
+                    "Compose_content": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http",
+                "inputs": {
+                    "uri": "@parameters('aoai_uri')",
+                    "method": "POST",
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "api-key": "@{parameters('aoai_key')}"
+                    },
+                    "body": {
+                        "temperature": 0.2,
+                        "response_format": {
+                            "type": "json_object"
+                        },
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "You summarise embassy services information from the GOV.UK website . You only focus on office opening times. Be concise, use natural language UK English, and omit any boilerplate."
+                                    }
+                                ]
+                            },
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": "Using the HTML below from the GOV.UK office page, return ONLY this JSON object:\n{\n  \"opening_times\": string\n}\nRules:\n- UK     English.\n- Be concise (1–3 short sentences max).\n- Strip all HTML tags.\n- Include any notes like public holiday closures or “by appointment only”.\n- If opening times are not present, return an empty string.\n\nHTML:\n@{outputs('Compose_content')?['office_url']}"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                }
+            },
+            "Compose_response": {
+                "runAfter": {
+                    "HTTP_POST_office_URL_to_LLM": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Compose",
+                "inputs": {
+                    "name": "@{coalesce(body('Get_API_content')?['title'],'')}",
+                    "address": "@{concat(\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['street_address'],''),\n      ', ',\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['postal_code'],''),\n      ' ',\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['locality'],''),\n      ', ',\n      coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['post_addresses'][0]?['world_location'],'')\n  )}",
+                    "telephone": "@{if(\n      or(\n        equals(trim(coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['phone_numbers'][0]?['number'],'')),'-'),\n        equals(trim(coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['phone_numbers'][0]?['number'],'')),'')\n      ),\n      null,\n      trim(body('Get_API_content')?['links']?['contacts'][0]?['details']?['phone_numbers'][0]?['number'])\n  )} ",
+                    "opening_hours": "@{trim(\r\n  coalesce(\r\n    json(coalesce(body('HTTP_POST_office_URL_to_LLM')?['choices'][0]?['message']?['content'], '{}'))?['opening_times'],\r\n    ''\r\n  )\r\n)}",
+                    "office_url": "@{coalesce(body('Get_API_content')?['links']?['main_office'][0]?['web_url'],'')}",
+                    "emergency_help_url": "@{if(\n      startsWith(last(split(trim(coalesce(body('Get_API_content')?['links']?['contacts'][0]?['details']?['description'],'')),' ')),'http'),\n      last(split(trim(body('Get_API_content')?['links']?['contacts'][0]?['details']?['description']),' ')),\n      ''\n  )}"
+                }
+            },
+            "Response": {
+                "runAfter": {
+                    "Compose_response": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Response",
+                "kind": "Http",
+                "inputs": {
+                    "statusCode": 200,
+                    "headers": {
+                        "Content-Type": "applicatinon/json"
+                    },
+                    "body": "@outputs('Compose_response')"
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "aoai_uri": {
+                "defaultValue": "@parameters('aoai_uri')"
+            },
+            "aoai_api_key": {
+                "defaultValue": "@parameters('aoai_api_key')",
+                "type": "String"
+            },
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {}
+        }
+    }
+}
