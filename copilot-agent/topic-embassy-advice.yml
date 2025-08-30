@@ -1,0 +1,76 @@
+kind: AdaptiveDialog
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - embassy advice
+      - help with embassy
+      - how to contact the embassy
+      - embassy information
+      - what does the embassy do
+      - need embassy assistance
+      - advice for visiting an embassy
+      - questions about embassies
+      - embassy support services
+      - who can help at the embassy
+
+  actions:
+    - kind: Question
+      id: Question_gh7o08
+      variable: Topic.Country
+      prompt: Which country is the embassy in?
+      entity: CountryOrRegionPrebuiltEntity
+
+    - kind: Question
+      id: Question_SC6D2R
+      variable: Topic.City
+      prompt: Do you know which city is the embassy located in?
+      entity: CityPrebuiltEntity
+
+    - kind: HttpRequestAction
+      id: cIOxu5
+      method: Post
+      url: https://prod-07.uksouth.logic.azure.com:443/workflows/f2003f6008bd4f2398bd27d6442a214a/triggers/When_a_HTTP_request_is_received_from_copilot/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2FWhen_a_HTTP_request_is_received_from_copilot%2Frun&sv=1.0&sig=O2IpSDQgT8Wfs0Qot1zjZCesW6JSn6_L0_OuUVbM-V0
+      headers:
+        Content-Type: application/json
+
+      body:
+        kind: JsonRequestContent
+        content: |-
+          ={
+            country: Topic.Country,
+            city: Topic.City
+          }
+
+      response: Topic.EmbassyAdvice
+      responseSchema: Any
+
+    - kind: SendActivity
+      id: ShowAdvice
+      activity: |
+        **Embassy information:**
+
+        **Name**
+        {Topic.EmbassyAdvice.name}
+
+        **Address**
+        {Topic.EmbassyAdvice.address}
+
+        **Opening times**
+        {Topic.EmbassyAdvice.opening_hours}
+
+        **Office Website**
+        {Topic.EmbassyAdvice.office_url}
+
+        **Emergency help can be found at**
+        {Topic.EmbassyAdvice.emergency_help_url}
+
+    - kind: Question
+      id: Question_zn8N1i
+      variable: Topic.IncludeMap
+      prompt: Would you like to see the location of the embassy, including a map?
+      entity: BooleanPrebuiltEntity
+
+inputType: {}
+outputType: {}
