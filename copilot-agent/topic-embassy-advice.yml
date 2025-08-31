@@ -51,19 +51,19 @@ beginDialog:
       activity: |
         **Embassy information:**
 
-        **Name**
+        **Name**  
         {Topic.EmbassyAdvice.name}
 
-        **Address**
+        **Address**  
         {Topic.EmbassyAdvice.address}
 
-        **Opening times**
+        **Opening times**  
         {Topic.EmbassyAdvice.opening_hours}
 
-        **Office Website**
+        **Office Website**  
         {Topic.EmbassyAdvice.office_url}
 
-        **Emergency help can be found at**
+        **Emergency help can be found at**  
         {Topic.EmbassyAdvice.emergency_help_url}
 
     - kind: Question
@@ -78,18 +78,30 @@ beginDialog:
         - id: conditionItem_E4vNaZ
           condition: =Topic.IncludeDirections
           actions:
+            - kind: SetVariable
+              id: setVariable_fTmjCZ
+              variable: Topic.MapURL
+              value: |-
+                ="https://www.google.com/maps/search/?api=1&query=" &
+                EncodeUrl(
+                    If(
+                        IsBlankOrError(Topic.EmbassyAdvice.address),
+                        Topic.City & ", " & Topic.Country,
+                        Topic.EmbassyAdvice.address
+                    )
+                )
+
             - kind: SendActivity
               id: sendActivity_ngtUrm
-              activity: |
-                **Location**
+              activity: |-
+                **Location**  
                 {Topic.EmbassyAdvice.directions}
 
-
-                **Public Transport**
+                **Public Transport**  
                 {Topic.EmbassyAdvice.nearest_transport}
 
-
-                **Map**
+                **Map**  
+                {Topic.MapURL}
 
       elseActions:
         - kind: SendActivity

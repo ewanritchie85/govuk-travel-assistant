@@ -52,7 +52,7 @@ beginDialog:
         **Health**
         {Topic.TravelAdvice.health}
 
-        _Updated_: {Topic.TravelAdvice.last_updated}
+        _Updated_: {Topic.TravelAdvice.last_updated}  
         _Full details_: {Topic.TravelAdvice.official_url}
 
 inputType: {}
