@@ -68,9 +68,36 @@ beginDialog:
 
     - kind: Question
       id: Question_zn8N1i
-      variable: Topic.IncludeMap
+      variable: Topic.IncludeDirections
       prompt: Would you like to see the location of the embassy, including a map?
       entity: BooleanPrebuiltEntity
+
+    - kind: ConditionGroup
+      id: conditionGroup_MUSDAu
+      conditions:
+        - id: conditionItem_E4vNaZ
+          condition: =Topic.IncludeDirections
+          actions:
+            - kind: SendActivity
+              id: sendActivity_ngtUrm
+              activity: |
+                **Location**
+                {Topic.EmbassyAdvice.directions}
+
+
+                **Public Transport**
+                {Topic.EmbassyAdvice.nearest_transport}
+
+
+                **Map**
+
+      elseActions:
+        - kind: SendActivity
+          id: EndPolitely
+          activity: Okay dokey. Glad I could help.
+
+        - kind: EndDialog
+          id: EndNow
 
 inputType: {}
 outputType: {}
